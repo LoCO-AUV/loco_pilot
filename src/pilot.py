@@ -43,9 +43,9 @@ new_command = False
 def convert_command(data):
     #This takes the float value from -1.0 to 1.0 and converts it to be between 1100 and 1900
     if(data >0.6):
-	return int((0.6 * 400) + neutral_speed)
+	    return int((0.6 * 400) + neutral_speed)
     else:
-	return int((data * 400) + neutral_speed)
+	    return int((data * 400) + neutral_speed)
 
 def command_callback(data):
     global pubRC, rc_msg, new_command
