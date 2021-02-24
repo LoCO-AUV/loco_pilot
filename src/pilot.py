@@ -101,6 +101,7 @@ def pilot():
         if new_command:
             pubRC.publish(rc_msg)
             new_command = False
+            rospy.loginfo('Publishing non-neutral Command')
         else:
             rc_msg = rc()
             rc_msg.channels[0] = neutral_speed
