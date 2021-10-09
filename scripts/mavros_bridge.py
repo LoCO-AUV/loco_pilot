@@ -39,11 +39,13 @@ pubRC = None,
 rc_msg = None
 neutral_speed = 1500
 new_command = False
+max_speed = 0
 
 def convert_command(data):
+    global max_speed
     #This takes the float value from -1.0 to 1.0 and converts it to be between 1100 and 1900
-    if(data >0.6):
-	    return int((0.6 * 400) + neutral_speed)
+    if(data > max_speed):
+	    return int((max_speed * 400) + neutral_speed)
     else:
 	    return int((data * 400) + neutral_speed)
 
@@ -55,7 +57,7 @@ def command_callback(data):
     rc_msg.channels[1] = neutral_speed
     rc_msg.channels[2] = convert_command(data.pitch)
     rc_msg.channels[3] = convert_command(data.yaw)
-    rc_msg.channels[4] = convert_command(data.throttle*-1)
+    rc_msg.channels[4] = convert_command(data.surge*-1)
 
 def set_stream_rate():
     stream_rate = rospy.ServiceProxy('mavros/set_stream_rate', StreamRate)
@@ -87,13 +89,15 @@ def init_pixhawk():
     arm()
 
 def pilot():
-    global pubRC, rc_msg, new_command
+    global pubRC, rc_msg, new_command, max_speed
 
-    rospy.init_node('pilot', anonymous=True)
+    rospy.init_node('mavros_bridge', anonymous=True)
     rate = rospy.Rate(10) # 10hz
 
     pubRC = rospy.Publisher('mavros/rc/override', rc, queue_size=10)
     rospy.Subscriber("loco/command", Command, command_callback)
+
+    max_speed = rospy.get_param('/loco/pilot/max_speed', 0.6)
 
     init_pixhawk()
 

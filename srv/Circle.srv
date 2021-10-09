@@ -1,5 +1,0 @@
-float64 duration 
-int64 radius # in meters, the radius of the circle to be run.
-float64 thrust # thrust
----
-bool success
