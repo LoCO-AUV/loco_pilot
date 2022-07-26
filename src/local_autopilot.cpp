@@ -60,7 +60,10 @@
 #include <loco_pilot/AutopilotConfig.h>
 #include <loco_pilot/UberpilotStatus.h>
 
+#include <mavros_msgs/VFR_HUD.h>
+#include <sensor_msgs/Imu.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/Vector3.h>
 #include <sensor_msgs/Imu.h>
 #include <tf/transform_listener.h>
 #include <tf/transform_broadcaster.h>
@@ -283,9 +286,9 @@ LocalAutopilot() :
   mode_service_ = n_.advertiseService("/loco/pilot/set_3Dauto_mode", &LocalAutopilot::set_autopilot_mode,this);
   reset_state_service_ = n_.advertiseService("/loco/pilot/reset_3D_autopilot_state", &LocalAutopilot::reset_state,this);
 
-  depth_sub_ = n_.subscribe<std_msgs::Float32>("/aqua/filtered_depth", 1, &LocalAutopilot::depthCallback, this);
+  depth_sub_ = n_.subscribe<mavros_msgs::VFR_HUD>("/mavros/vfr_hud", 1, &LocalAutopilot::depthCallback, this);
   target_sub_ = n_.subscribe<geometry_msgs::PoseStamped>("/loco/target_pose", 1, &LocalAutopilot::targetCallback, this);
-  vel_sub_ = n_.subscribe<geometry_msgs::Twist>("/loco/positioning/angular_velocity", 1, &LocalAutopilot::velocityCallback, this);
+  vel_sub_ = n_.subscribe<sensor_msgs::Imu>("/mavros/imu/data", 1, &LocalAutopilot::velocityCallback, this);
   keepalive_timer = n_.createTimer(ros::Duration(update_period_), &LocalAutopilot::keepalive, this);
 }
 
@@ -395,14 +398,14 @@ void applyExpFilter( double filter_time_constant, double sample_period, double c
   }
 }
 
-void depthCallback(const std_msgs::Float32::ConstPtr& filtered_depth )
+void depthCallback(const mavros_msgs::VFR_HUD::ConstPtr& vfr_msg )
 {
-  current_depth = filtered_depth->data;
+  current_depth = vfr_msg->altitude;
   
   if (use_robot_frame_depth) {
     tf::StampedTransform T_from_global_to_imu;
     double curr_r_in_global, curr_p_in_global, curr_y_in_global;
-    listener_.lookupTransform("/loco_base", "/latest_fix", ros::Time(0), T_from_global_to_imu);
+    listener_.lookupTransform("/odom", "/base_link", ros::Time(0), T_from_global_to_imu);
     tf::Quaternion Q_from_imu_to_global = T_from_global_to_imu.inverse().getRotation();
     getRPY(Q_from_imu_to_global, curr_r_in_global, curr_p_in_global, curr_y_in_global);
 
@@ -449,13 +452,18 @@ void targetCallback(const geometry_msgs::PoseStamped::ConstPtr& targetPose )
   have_target_ = true;
 }
 
-void velocityCallback(const geometry_msgs::Twist::ConstPtr& vel_msg )
+void velocityCallback(const sensor_msgs::Imu::ConstPtr& imu_msg )
 {
-  current_velocity_ = *vel_msg;
+  geometry_msgs::Vector3 angular_vel = imu_msg->angular_velocity;
+  current_velocity_.angular.x = angular_vel.x;
+  current_velocity_.angular.y = angular_vel.y;
+  current_velocity_.angular.z = angular_vel.z;
 
   if( !have_velocity_ )
   {
-    filtered_velocity_ = current_velocity_;
+    filtered_velocity_.angular.x = current_velocity_.angular.x;
+    filtered_velocity_.angular.y = current_velocity_.angular.y;
+    filtered_velocity_.angular.z = current_velocity_.angular.z;
   }
   else
   {
@@ -637,7 +645,7 @@ void computeFinalCommands( loco_pilot::Command &raw_command, loco_pilot::Command
 
     geometry_msgs::PoseStamped cmd;
     cmd.header.stamp = ros::Time::now();
-    cmd.header.frame_id = "/latest_fix";
+    cmd.header.frame_id = "/base_link";
 
     cmd.pose.position.x = 0; //curr_speed_;
     cmd.pose.position.y = 0; //curr_heave_;
@@ -682,7 +690,7 @@ void computeFinalCommands( loco_pilot::Command &raw_command, loco_pilot::Command
   //br_.sendTransform( tf::StampedTransform( transform_, ros::Time::now(), "/aqua_base", "/auto_pilot_command_in_imu"));
 
   //transform_.setRotation(rotation_from_target_to_global_);
-  //br_.sendTransform( tf::StampedTransform( transform_, ros::Time::now(), "/latest_fix", "/auto_pilot_target_in_global_frame"));
+  //br_.sendTransform( tf::StampedTransform( transform_, ros::Time::now(), "/base_link", "/auto_pilot_target_in_global_frame"));
 
   ROS_INFO_COND( display_output_, "Using gains of:\n   KDEPTH=%f   KSPEED=%f   KHEAVE=%f",
             params_.KDEPTH, params_.KSPEED, params_.KHEAVE);
@@ -779,10 +787,10 @@ void doAutopilotUpdate()
       // Commented because we currently just get the latest, no matter what its time
       // ros::Time now = ros::Time::now();
       // ros::Duration one_tenth(0.1);
-      //listener_.waitForTransform("/aqua_base", "/latest_fix", now, one_tenth);
-      //listener_.lookupTransform("/aqua_base", "/latest_fix", ros::Time::now(), transform_from_global_to_imu);
+      //listener_.waitForTransform("/aqua_base", "/base_link", now, one_tenth);
+      //listener_.lookupTransform("/aqua_base", "/base_link", ros::Time::now(), transform_from_global_to_imu);
 
-      listener_.lookupTransform("/loco_base", "/latest_fix", ros::Time(0), transform_from_global_to_imu);
+      listener_.lookupTransform("/odom", "/base_link", ros::Time(0), transform_from_global_to_imu);
       rotation_from_global_to_imu_ = transform_from_global_to_imu.getRotation();
       rotation_from_imu_to_global_ = transform_from_global_to_imu.inverse().getRotation();
       
@@ -800,7 +808,7 @@ void doAutopilotUpdate()
 //      // TODO: Verify with Phil and on the robot that these computed rates are somewhat similar to those
 //      //       input to the AP update function in RD
 //      tf::StampedTransform previous_transform;
-//      listener_.lookupTransform("/aqua_base", "/latest_fix", now - one_tenth, previous_transform);
+//      listener_.lookupTransform("/aqua_base", "/base_link", now - one_tenth, previous_transform);
 //      rotation_from_previous_imu_to_global_ = previous_transform.inverse().getRotation();
 //      tf::Quaternion rotation_from_previous_imu_to_current_imu_ = rotation_from_global_to_imu_ * rotation_from_previous_imu_to_global_;
 //      // TODO: R_P^C = R_G^C * R_P^G  (Florian verify?)

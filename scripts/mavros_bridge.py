@@ -84,8 +84,8 @@ def arm():
 
 def init_pixhawk():
     set_stream_rate()
-#    set_manual_mode()
-    set_stabilized_mode()
+    set_manual_mode()
+    # set_stabilized_mode()
     arm()
 
 def pilot():
@@ -97,7 +97,7 @@ def pilot():
     pubRC = rospy.Publisher('mavros/rc/override', rc, queue_size=10)
     rospy.Subscriber("loco/command", Command, command_callback)
 
-    max_speed = rospy.get_param('/loco/pilot/max_speed', 0.6)
+    max_speed = rospy.get_param('max_speed', 0.25)
 
     init_pixhawk()
 

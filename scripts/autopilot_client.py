@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python
 
 # This code is a part of the LoCO AUV project.
 # Copyright (C) The Regents of the University of Minnesota
@@ -65,8 +65,6 @@ from geometry_msgs.msg import PoseStamped
 from loco_pilot.srv import SetAutopilotMode  
 import dynamic_reconfigure.client
 
-from timeout import Timeout
-
 class AutoPilotClient:
     
     def __init__(self, params):
@@ -76,20 +74,18 @@ class AutoPilotClient:
         self.current_depth = 0
 
         rospy.wait_for_service('/loco/pilot/set_3Dauto_mode')
-        rospy.wait_for_message('/AP_filtered_depth', Float32)
         
-        self.depth_sub = rospy.Subscriber("/AP_filtered_depth", Float32, self.depth_callback)
         self.set_3d_auto_mode = rospy.ServiceProxy('/loco/pilot/set_3Dauto_mode', SetAutopilotMode)
         
-        self.listener.waitForTransform('/latest_fix', '/loco_base', rospy.Time(0), rospy.Duration(4))
+        self.listener.waitForTransform('/odom', '/base_link', rospy.Time(0), rospy.Duration(4))
+    
+        # self.dyn_reconf = dynamic_reconfigure.client.Client("/AP_depth_filter", timeout=5)  
+        # self.original_params = self.dyn_reconf.get_configuration(timeout=5) 
+        # print 'Previous value of window_size_sec  was: ' + str(self.original_params['window_size_sec'])
 
-        self.dyn_reconf = dynamic_reconfigure.client.Client("/AP_depth_filter", timeout=5)  
-        self.original_params = self.dyn_reconf.get_configuration(timeout=5) 
-        print 'Previous value of window_size_sec  was: ' + str(self.original_params['window_size_sec'])
-
-        rospy.loginfo('Setting window_size_sec to ' + str(0.5)) 
-        self.dyn_reconf.update_configuration({'window_size_sec':float(0.5)}) 
-        rospy.loginfo('Returned from update_configuration')
+        # rospy.loginfo('Setting window_size_sec to ' + str(0.5)) 
+        # self.dyn_reconf.update_configuration({'window_size_sec':float(0.5)}) 
+        # rospy.loginfo('Returned from update_configuration')
 
         try:
             self.resp1 = self.set_3d_auto_mode(mode=self.mode)
@@ -129,9 +125,9 @@ class AutoPilotClient:
 
    
     def get_rpy_of_imu_in_global(self):
-        self.listener.waitForTransform('/latest_fix', '/loco_base', rospy.Time(0), rospy.Duration(4))
+        self.listener.waitForTransform('/base_link', '/odom', rospy.Time(0), rospy.Duration(4))
         (position_of_imu_in_global, rotation_from_imu_to_global) = \
-            self.listener.lookupTransform('/latest_fix', '/loco_base', rospy.Time(0))
+            self.listener.lookupTransform('/base_link', '/odom', rospy.Time(0))
         rpy_from_imu_to_global = tf.transformations.euler_from_quaternion(rotation_from_imu_to_global)
         return rpy_from_imu_to_global
 
@@ -143,7 +139,7 @@ class AutoPilotClient:
     
         if type(dt_in_sec) == int:
             dt_in_sec = rospy.Duration(dt_in_sec)
-        rate = rospy.Rate(10)
+        rate = rospy.Rate(10, threshold=2)
         started_at = rospy.Time.now()
 
         #while (not rospy.is_shutdown()) and ((rospy.Time.now() - started_at).to_sec() < dt_in_sec):
@@ -160,7 +156,7 @@ class AutoPilotClient:
             pose_and_vel.pose.position.y = vz # heave
             pose_and_vel.pose.position.z = target_depth 
             pose_and_vel.header.stamp = rospy.Time.now()
-            pose_and_vel.header.frame_id = '/latest_fix'
+            pose_and_vel.header.frame_id = '/base_link'
 
             self.target_pose_pub.publish(pose_and_vel)
             rate.sleep()
@@ -193,7 +189,7 @@ class AutoPilotClient:
             pose_and_vel.pose.position.y = vz # heave
             pose_and_vel.pose.position.z = target_depth 
             pose_and_vel.header.stamp = rospy.Time.now()
-            pose_and_vel.header.frame_id = '/latest_fix'
+            pose_and_vel.header.frame_id = '/base_link'
             self.target_pose_pub.publish(pose_and_vel) 
             rpy_from_imu_to_global = self.get_rpy_of_imu_in_global()
             rate.sleep()
@@ -242,7 +238,7 @@ class AutoPilotClient:
           pose_and_vel.pose.position.y = vz # heave
           pose_and_vel.pose.position.z = target_depth 
           pose_and_vel.header.stamp = rospy.Time.now()
-          pose_and_vel.header.frame_id = '/latest_fix'
+          pose_and_vel.header.frame_id = '/base_link'
 
           self.target_pose_pub.publish(pose_and_vel) 
           rpy_from_imu_to_global = self.get_rpy_of_imu_in_global()
@@ -277,8 +273,31 @@ class AutoPilotClient:
             pose_and_vel.pose.position.y = vz # heave
             pose_and_vel.pose.position.z = target_depth 
             pose_and_vel.header.stamp = rospy.Time.now()
-            pose_and_vel.header.frame_id = '/latest_fix'
+            pose_and_vel.header.frame_id = '/base_link'
 
             self.target_pose_pub.publish(pose_and_vel) 
             rpy_from_imu_to_global = self.get_rpy_of_imu_in_global()
             rate.sleep()
+
+
+if __name__ == '__main__':
+    rospy.init_node('APC_test')
+    params = {}
+    params['mode'] = AutopilotModes.AP_GLOBAL_ANGLES_LOCAL_THRUST
+    ap = AutoPilotClient(params)
+
+
+    rospy.loginfo("Attemping roll of 10")
+    ap.do_relative_angle_change((10,0,0), ap.current_depth, 0.1, 10, threshold=2)
+    rospy.loginfo("Going back ")
+    ap.do_relative_angle_change((-10,0,0), ap.current_depth, 0.1, 10, threshold=2)
+
+    rospy.loginfo("Attemping pitch of 10")
+    ap.do_relative_angle_change((0,-10,0), ap.current_depth, 0.1, 10, threshold=2)
+    rospy.loginfo("Going back ")
+    ap.do_relative_angle_change((0,10,0), ap.current_depth, 0.1, 10, threshold=2)
+
+    rospy.loginfo("Attemping yaw of 10")
+    ap.do_relative_angle_change((0,0,10, threshold=2), ap.current_depth, 0.1, 10, threshold=2)
+    rospy.loginfo("Going back")
+    ap.do_relative_angle_change((0,0,-10, threshold=2), ap.current_depth, 0.1, 10, threshold=2)
